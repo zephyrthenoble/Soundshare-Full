@@ -22,7 +22,7 @@ $Servers = @{
     backend = @{
         Dir = "..\Soundshare-Backend"
         PidFile = "backend.pid"
-        LogFile = "backend.txt"
+        LogFile = "backend.log"
         Command = "uv run app.py"
         Executable = "uv"
         Ports = @(5000, 5001, 8000, 8080)
@@ -31,7 +31,7 @@ $Servers = @{
     frontend = @{
         Dir = "..\Soundshare-Frontend"
         PidFile = "frontend.pid"
-        LogFile = "frontend.txt"
+        LogFile = "frontend.log"
         Command = "npm run dev"
         Executable = "npm"
         Ports = @(3000, 3001, 4000, 8081)
@@ -384,8 +384,8 @@ switch ($Action.ToLower()) {
         }
         
         Write-Host "Useful commands:" -ForegroundColor Cyan
-        Write-Host "  Monitor backend: Get-Content backend.txt -Wait" -ForegroundColor Gray
-        Write-Host "  Monitor frontend: Get-Content frontend.txt -Wait" -ForegroundColor Gray
+        Write-Host "  Monitor backend: Get-Content backend.log -Wait" -ForegroundColor Gray
+        Write-Host "  Monitor frontend: Get-Content frontend.log -Wait" -ForegroundColor Gray
         Write-Host "  Start both: .\server.ps1 start both [-background]" -ForegroundColor Gray
         Write-Host "  Stop both: .\server.ps1 stop both" -ForegroundColor Gray
     }
