@@ -41,6 +41,11 @@ $Servers = @{
 
 Set-Location $PSScriptRoot
 
+function Stop-ProcessTree {
+    Param([int]$ppid)
+    Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $ppid } | ForEach-Object { Stop-ProcessTree $_.ProcessId }
+    Stop-Process -Id $ppid
+}
 # Helper Functions
 function Write-ServerMessage {
     param(
@@ -117,7 +122,7 @@ function Stop-Server {
             Write-ServerMessage $ServerType "Found process (PID: $($process.Id))" "Red"
         }
         try {
-            Stop-Process -Id $process.Id -Force
+            Stop-ProcessTree -ppid $process.Id
             if ($Verbose) {
                 Write-ServerMessage $ServerType "Stopped process $($process.Id)" "Green"
             }
