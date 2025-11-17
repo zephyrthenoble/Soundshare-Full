@@ -1,0 +1,17 @@
+[servers.backend]
+directory = "Soundshare-Backend"
+command = ["uv", "run", "app.py"]
+executable = "uv"
+log_file = "logs/backend.log"
+pid_file = "logs/backend.pid"
+ports = [5000, 5001, 8000, 8080]
+endpoint = "http://localhost:8000"
+
+[servers.frontend]
+directory = "SoundShare-Frontend"
+command = ["npm", "run", "dev"]
+executable = "npm"
+log_file = "logs/frontend.log"
+pid_file = "logs/frontend.pid"
+ports = [3000, 3001, 4000, 8081]
+endpoint = "http://localhost:3000"
