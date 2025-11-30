@@ -1,6 +1,6 @@
-[submodule "Soundshare-Backend"]
-	path = Soundshare-Backend
-	url = https://github.com/zephyrthenoble/Soundshare-Backend.git
-[submodule "SoundShare-Frontend"]
-	path = SoundShare-Frontend
+[submodule "frontend"]
+	path = frontend
 	url = https://github.com/zephyrthenoble/SoundShare-Frontend.git
+[submodule "backend"]
+	path = backend
+	url = https://github.com/zephyrthenoble/Soundshare-Backend.git

@@ -4,3 +4,13 @@
 *.pid
 *.log
 config.toml
+# Doxygen build artifacts
+docs/build/doxygen/
+docs/build/doxygen/html/
+docs/build/doxygen/latex/
+docs/build/doxygen/xml/
+docs/build/doxygen/*.tag
+docs/build/doxygen/*.map
+docs/build/doxygen/*.md5
+docs/build/doxygen/*.db
+docs/build/doxygen/*.tmp

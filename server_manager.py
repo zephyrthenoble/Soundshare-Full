@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,9 +36,18 @@ class ServerConfig:
     ports: Sequence[int]
 
 
+@dataclass
+class ManagedProcess:
+    config: ServerConfig
+    process: subprocess.Popen[str]
+    thread: threading.Thread
+
+
 BASE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BASE_DIR
 CONFIG_PATH = REPO_ROOT / "config.toml"
+IS_WINDOWS = os.name == "nt"
+LOG_ENCODING = "utf-8-sig" if IS_WINDOWS else "utf-8"
 
 
 def load_server_configs() -> dict[str, ServerConfig]:
@@ -131,6 +141,19 @@ def normalize_ports(raw_ports: Any, key: str) -> Sequence[int]:
 
 SERVERS: dict[str, ServerConfig] = load_server_configs()
 SERVER_ORDER: tuple[str, ...] = tuple(SERVERS.keys())
+
+
+def resolve_command_args(command: Sequence[str]) -> list[str]:
+    if not command:
+        raise SystemExit("Error: command must contain at least one argument")
+
+    first = command[0]
+    resolved = first
+    if not Path(first).is_absolute():
+        located = shutil.which(first)
+        if located:
+            resolved = located
+    return [resolved, *map(str, command[1:])]
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -237,6 +260,28 @@ def terminate_process_tree(pid: int) -> bool:
         return False
 
 
+def force_kill_process_tree(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    try:
+        proc = psutil.Process(pid)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+
+    for child in proc.children(recursive=True):
+        try:
+            child.kill()
+        except psutil.Error:
+            pass
+    try:
+        proc.kill()
+        proc.wait(timeout=5)
+        return True
+    except psutil.Error:
+        return False
+
+
 def ensure_directory(config: ServerConfig) -> None:
     if config.directory.is_dir():
         return
@@ -265,11 +310,13 @@ def spawn_process(config: ServerConfig, background: bool, append_logs: bool) -> 
     else:
         start_new_session = True
 
+    cmd_args = resolve_command_args(config.command)
+
     if background:
         mode = "ab" if append_logs else "wb"
         log_handle = open(config.log_file, mode)
         process = subprocess.Popen(
-            config.command,
+            cmd_args,
             cwd=config.directory,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
@@ -280,11 +327,13 @@ def spawn_process(config: ServerConfig, background: bool, append_logs: bool) -> 
         return process
 
     process = subprocess.Popen(
-        config.command,
+        cmd_args,
         cwd=config.directory,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding=LOG_ENCODING,
+        errors="replace",
         bufsize=1,
         creationflags=creationflags,
         start_new_session=start_new_session,
@@ -294,11 +343,12 @@ def spawn_process(config: ServerConfig, background: bool, append_logs: bool) -> 
 
 def stream_foreground_output(process: subprocess.Popen, log_file: Path) -> int:
     assert process.stdout is not None
-    mode = "ab" if log_file.exists() else "wb"
-    with open(log_file, mode) as log_handle:
+    with open(log_file, "a", encoding=LOG_ENCODING, newline="") as log_handle:
         for line in process.stdout:
-            encoded = line.encode("utf-8", errors="replace")
-            log_handle.write(encoded)
+            if not line:
+                break
+            log_handle.write(line)
+            log_handle.flush()
             print(line, end="")
     return process.wait()
 
@@ -374,6 +424,91 @@ def restart_server(config: ServerConfig, background: bool) -> None:
     start_server(config, background)
 
 
+def stream_prefixed_output(config: ServerConfig, process: subprocess.Popen[str], log_file: Path) -> None:
+    assert process.stdout is not None
+    prefix = f"[{config.key}] "
+    with open(log_file, "a", encoding=LOG_ENCODING, newline="") as log_handle:
+        for line in process.stdout:
+            if not line:
+                break
+            log_handle.write(line)
+            log_handle.flush()
+            print(f"{prefix}{line.rstrip()}", flush=True)
+
+
+def cleanup_managed_process(managed: ManagedProcess, exit_code: int) -> None:
+    remove_pid_file(managed.config.pid_file)
+    if managed.process.stdout:
+        try:
+            managed.process.stdout.close()
+        except Exception:
+            pass
+    managed.thread.join(timeout=1)
+    status = "exited cleanly" if exit_code == 0 else f"exited with code {exit_code}"
+    print(f"[{managed.config.key}] {status}")
+
+
+def start_servers_attached(configs: Sequence[ServerConfig]) -> None:
+    managed_processes: list[ManagedProcess] = []
+    for config in configs:
+        ensure_directory(config)
+        ensure_command_available(config.executable)
+
+        existing_pid = read_pid(config.pid_file)
+        if existing_pid and process_is_running(existing_pid):
+            print(f"[{config.key}] Already running (PID {existing_pid})")
+            continue
+
+        log_file, append_logs = prepare_log_file(config.log_file)
+        print(f"[{config.key}] Starting in attached mode...")
+        print(f"[{config.key}] Command: {' '.join(config.command)}")
+        print(f"[{config.key}] Logs -> {log_file}")
+
+        process = spawn_process(config, background=False, append_logs=append_logs)
+        if process.stdout is None:
+            print(f"[{config.key}] Error: unable to capture process output")
+            process.terminate()
+            continue
+
+        write_pid(config.pid_file, process.pid)
+        thread = threading.Thread(target=stream_prefixed_output, args=(config, process, log_file), daemon=True)
+        thread.start()
+        managed_processes.append(ManagedProcess(config, process, thread))
+        print()
+
+    if not managed_processes:
+        print("No new servers were started; use '--background' if you only want to ensure they are running.")
+        return
+
+    print("Streaming logs. Press Ctrl+C once to stop, twice to force kill.")
+    wait_for_managed_processes(managed_processes)
+
+
+def wait_for_managed_processes(processes: list[ManagedProcess]) -> None:
+    interrupt_level = 0
+
+    while processes:
+        for managed in list(processes):
+            ret = managed.process.poll()
+            if ret is not None:
+                cleanup_managed_process(managed, ret)
+                processes.remove(managed)
+        if not processes:
+            break
+        try:
+            time.sleep(0.2)
+        except KeyboardInterrupt:
+            interrupt_level += 1
+            if interrupt_level == 1:
+                print("Ctrl+C detected. Attempting graceful shutdown (press again to force).")
+                for managed in processes:
+                    terminate_process_tree(managed.process.pid)
+            else:
+                print("Second Ctrl+C detected. Force killing remaining servers...")
+                for managed in processes:
+                    force_kill_process_tree(managed.process.pid)
+                interrupt_level = 2
+
 def port_is_listening(port: int) -> bool:
     try:
         for conn in psutil.net_connections(kind="inet"):
@@ -390,7 +525,7 @@ def port_is_listening(port: int) -> bool:
 def tail_log(log_file: Path, lines: int) -> list[str]:
     if not log_file.exists():
         return []
-    with log_file.open("r", encoding="utf-8", errors="replace") as handle:
+    with log_file.open("r", encoding=LOG_ENCODING, errors="replace") as handle:
         content = handle.readlines()
     return content[-lines:]
 
@@ -441,18 +576,18 @@ def main(argv: Sequence[str]) -> int:
     configs = list(resolve_targets(args.target))
 
     background = args.background
-    if len(configs) > 1 and args.action in {"start", "restart"} and not background:
-        print("Multiple servers requested; automatically enabling background mode so they can start together.")
-        background = True
 
     action = args.action
     if action == "start":
-        for config in configs:
-            start_server(config, background)
-            if len(configs) > 1:
-                print()
-        if len(configs) > 1 and background:
-            print("All selected servers started in background. Use 'python server_manager.py status' to monitor.")
+        if len(configs) > 1 and not background:
+            start_servers_attached(configs)
+        else:
+            for config in configs:
+                start_server(config, background)
+                if len(configs) > 1:
+                    print()
+            if len(configs) > 1 and background:
+                print("All selected servers started in background. Use 'python server_manager.py status' to monitor.")
         return 0
 
     if action == "stop":
@@ -463,12 +598,19 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if action == "restart":
-        for config in configs:
-            restart_server(config, background)
-            if len(configs) > 1:
-                print()
-        if len(configs) > 1 and background:
-            print("All selected servers restarted in background.")
+        if len(configs) > 1 and not background:
+            for index, config in enumerate(configs):
+                stop_server(config)
+                if len(configs) > 1 and index < len(configs) - 1:
+                    print()
+            start_servers_attached(configs)
+        else:
+            for config in configs:
+                restart_server(config, background)
+                if len(configs) > 1:
+                    print()
+            if len(configs) > 1 and background:
+                print("All selected servers restarted in background.")
         return 0
 
     if action == "status":

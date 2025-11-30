@@ -1,0 +1,61 @@
+# Doxyfile for SoundShare backend API docs
+PROJECT_NAME           = "SoundShare Backend"
+PROJECT_BRIEF          = "Flask + SQLAlchemy music metadata service"
+OUTPUT_LANGUAGE        = English
+OUTPUT_DIRECTORY       = docs/build/doxygen
+CREATE_SUBDIRS         = YES
+FULL_PATH_NAMES        = NO
+STRIP_FROM_PATH        = backend
+
+INPUT                  = backend
+FILE_PATTERNS          = *.py *.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */__pycache__/*
+USE_MDFILE_AS_MAINPAGE = backend/README.md
+
+OPTIMIZE_OUTPUT_JAVA   = YES
+PYTHON_DOCSTRING       = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = NO
+MULTILINE_CPP_IS_BRIEF = NO
+ALIASES                =
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+HIDE_UNDOC_MEMBERS     = NO
+HIDE_UNDOC_CLASSES     = NO
+SORT_MEMBER_DOCS       = YES
+SORT_MEMBERS_CTORS_1ST = YES
+
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = YES
+VERBATIM_HEADERS       = NO
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+ENUM_VALUES_PER_LINE   = 1
+
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_RTF           = NO
+GENERATE_XML           = NO
+GENERATE_TAGFILE       = docs/build/doxygen/soundshare_backend.tag
+
+QUIET                  = NO
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+WARN_AS_ERROR          = NO
+WARN_LOGFILE           =
+
+FILE_VERSION_FILTER    =
+FILTER_PATTERNS        = *.py="python -m doxypypy.doxypypy --autobrief"
+FILTER_SOURCE_FILES    = YES
+EXTENSION_MAPPING      = py=Python
+
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
